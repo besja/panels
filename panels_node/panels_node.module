@@ -73,7 +73,11 @@ function panels_node_menu() {
     'title' => 'Panel layout',
     'page callback' => 'panels_node_edit_layout',
     'weight' => 2,
-  ) + $base;
+    'access callback' => 'panels_node_edit_layout_access',
+    'access arguments' => array(1),
+    'page arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+  ); 
 
   $items['node/%node/panel_content'] = array(
     'title' => 'Panel content',
@@ -102,6 +106,20 @@ function panels_node_edit_node($node) {
   return node_access('update', $node);
 }
 
+/**
+ * Hardcoded: Access callback to determine if a user has edit access to layout
+ */
+function panels_node_edit_layout_access($node) {
+  if (!isset($node->panels_node)) {
+    return FALSE;
+  } else {
+    if (user_access("administer panel-nodes")) {
+      return TRUE; 
+    } else {
+      return FALSE; 
+    }
+  }
+}
 /**
  * Override of node add page to force layout selection prior
  * to actually editing a node.
@@ -178,25 +196,13 @@ function panels_node_hook_form(&$node, &$form_state) {
   ctools_include('plugins', 'panels');
 
   $form['panels_node']['#tree'] = TRUE;
-  if (empty($node->nid) && arg(0) == 'node' && arg(1) == 'add') {
-    // Grab our selected layout from the $node, If it doesn't exist, try arg(3)
-    // and if that doesn't work present them with a list to pick from.
-    $panel_layout = isset($node->panel_layout) ? $node->panel_layout : arg(3);
-    if (empty($panel_layout)) {
-      $opts = $_GET;
-      unset($opts['q']);
-      return drupal_goto('node/add/panel/choose-layout', $opts);
-    }
 
-    $layout = panels_get_layout($panel_layout);
-    if (empty($layout)) {
-      return drupal_not_found();
-    }
-    $form['panels_node']['layout'] = array(
-      '#type' => 'value',
-      '#value' => $panel_layout,
-    );
-  }
+
+
+  $form['panels_node']['layout'] = array(
+    '#type' => 'value',
+    '#value' => 'twocol',
+  );
 
   $type = node_type_get_type($node);
 
@@ -213,7 +219,7 @@ function panels_node_hook_form(&$node, &$form_state) {
   }
 
   $form['panels_node']['css_id'] = array(
-    '#type' => 'textfield',
+    '#type' => 'hidden',
     '#title' => t('CSS ID'),
     '#size' => 30,
     '#description' => t('An ID that can be used by CSS to style the panel.'),
@@ -230,10 +236,9 @@ function panels_node_hook_form(&$node, &$form_state) {
   }
 
   $form['panels_node']['pipeline'] = array(
-    '#type' => 'radios',
-    '#options' => $options,
+    '#type' => 'hidden',
     '#title' => t('Renderer'),
-    '#default_value' => isset($node->panels_node['pipeline']) ? $node->panels_node['pipeline'] : 'standard',
+    '#default_value' => 'standard',
   );
 
   return $form;
@@ -318,6 +323,7 @@ function panels_node_hook_update($node) {
 /**
  * Implementation of hook_view().
  */
+
 function panels_node_hook_view($node, $view_mode) {
   static $rendering = array();
 
@@ -334,7 +340,7 @@ function panels_node_hook_view($node, $view_mode) {
     $node->readmore = TRUE;
   }
   else {
-    if (!empty($node->panels_node['did'])) {
+    if ($view_mode == 'full' && !empty($node->panels_node['did'])) {
       $display = panels_load_display($node->panels_node['did']);
       $display->css_id = $node->panels_node['css_id'];
       // TODO: Find a way to make sure this can't node_view.
@@ -346,12 +352,31 @@ function panels_node_hook_view($node, $view_mode) {
         '#weight' => 0,
       );
     }
+    
+    if ($view_mode == 'search_index' && !empty($node->panels_node['did'])) {
+
+      $display = panels_load_display($node->panels_node['did']);
+      $display->css_id = $node->panels_node['css_id'];
+      // TODO: Find a way to make sure this can't node_view.
+      $display->context = panels_node_get_context($node);
+      $display->cache_key = 'panels_node:' . $node->nid;
+      $renderer = panels_get_renderer($node->panels_node['pipeline'], $display);
+      $html = panels_render_display($display, $renderer);     
+      $node->content['body'] = array(
+        '#markup' => panels_render_display($display, $renderer),
+        '#weight' => 0,
+      );     
+    }
+    
   }
 
   unset($rendering[$node->nid]);
   return $node;
 }
 
+
+
+ 
 // ---------------------------------------------------------------------------
 // Administrative pages
 
